@@ -10,10 +10,14 @@ for use inside a web application. It supports:
 
 - `quiz_model/`
   - `models.py`: `Difficulty`, `QuizType`, `QuizItem` dataclass
-  - `arithmetic_generator.py`: arithmetic question generator
-  - `equation_generator.py`: simple equation (linear) generator
+  - `arithmetic_generator.py`: rule-based arithmetic question generator
+  - `equation_generator.py`: rule-based equation (linear) generator
+  - `learned_model.py`: neural network models (experimental, not used by default)
   - `generator.py`: `MathQuizGenerator` high-level API
 - `service.py`: FastAPI HTTP service that exposes the generator to other backends
+- `train_quiz_model.py`: training script for arithmetic learned model (experimental)
+- `train_equation_model.py`: training script for equation learned model (experimental)
+- `evaluate_models.py`: evaluation script to analyze learned model performance
 - `requirements.txt`: Python dependencies for the service
 
 ### Core Python usage (direct import)
@@ -32,31 +36,52 @@ print(item.answer)  # e.g. 10
 items = gen.generate_batch(quiz_type=QuizType.EQUATION, difficulty=Difficulty.MEDIUM, n=5)
 ```
 
-By default, `MathQuizGenerator` will:
+### Rule-based vs Learned Models
 
-- use the **learned arithmetic model** if trained weights exist at `quiz_model/quiznet.pt`
-- otherwise fall back to the **rule-based arithmetic generator**.
+This package includes **both rule-based and learned (neural network) generators**:
 
-Equations are currently always rule-based.
+- **Rule-based generators** (`ArithmeticGenerator`, `EquationGenerator`): Deterministic, fully controllable logic that directly implements difficulty ranges, operators, and question structures.
+- **Learned models** (`LearnedArithmeticGenerator`, `LearnedEquationGenerator`): Small neural networks trained to imitate the rule-based generators.
 
-### Training your own arithmetic model (from scratch)
+**We use rule-based models by default** because:
 
-You can train the small neural network yourself, using synthetic data from the
-rule-based generator:
+1. **Guaranteed correctness**: Rule-based generators compute answers exactly from operators/operands, ensuring all questions are mathematically valid.
+2. **Explicit difficulty control**: You directly control number ranges, operators, and multi-step complexity per difficulty level.
+3. **No training overhead**: No need to train, evaluate, or maintain model weights.
+4. **Better for this use case**: Learned models struggle to accurately predict specific question parameters given only difficulty level, as the rule-based generator's outputs are inherently stochastic. Evaluation showed learned models perform only slightly better than random guessing.
+
+The learned models are available for experimentation (see below), but for production quiz generation, the rule-based approach is recommended.
+
+### Experimental: Learned Models (Optional)
+
+The package includes training scripts and neural network implementations for learned models, but these are **not recommended for production use** due to poor accuracy when predicting question parameters from difficulty alone.
+
+If you want to experiment with them:
 
 ```bash
+# Install PyTorch (only needed for learned models)
 pip install -r requirements.txt  # includes torch
+
+# Train arithmetic model
 python train_quiz_model.py
+
+# Train equation model
+python train_equation_model.py
+
+# Evaluate model performance
+python evaluate_models.py
 ```
 
-This will:
+To use learned models, you must explicitly enable them:
 
-- generate arithmetic questions using the existing logic
-- train `quiz_model.learned_model.QuizNet`
-- save weights to `quiz_model/quiznet.pt`
+```python
+gen = MathQuizGenerator(
+    use_learned_arithmetic=True,  # requires quiznet.pt
+    use_learned_equation=True,    # requires quiznet_equation.pt
+)
+```
 
-After that, the Python service (and thus your Node backend) will automatically
-use the **learned model** for arithmetic questions.
+By default, `use_learned_arithmetic=False` and `use_learned_equation=False`, so the rule-based generators are used.
 
 ### Python HTTP service (`service.py`)
 
@@ -93,9 +118,12 @@ The service exposes the generator via REST so a Node/Express backend can call it
 From the project root:
 
 ```bash
+# Install dependencies (torch is only needed if experimenting with learned models)
 pip install -r requirements.txt
 uvicorn service:app --host 0.0.0.0 --port 8000
 ```
+
+**Note**: The `torch` dependency in `requirements.txt` is only needed if you want to experiment with learned models. For rule-based generation (the default), you can remove `torch` from `requirements.txt` if you want a lighter installation.
 
 Test quickly:
 
